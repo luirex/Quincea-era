@@ -494,32 +494,39 @@ function saveMusicMeta(){localStorage.setItem(MUSIC_META_KEY,JSON.stringify(musi
 function updateMusicVolume(){const r=document.getElementById('musicVolume');if(r){musicVolume=Number(r.value)/100;localStorage.setItem(MUSIC_VOLUME_KEY,String(musicVolume));const v=document.getElementById('musicVolumeValue');if(v)v.textContent=Math.round(musicVolume*100)+'%'}const a=document.getElementById('bgMusic');if(a)a.volume=musicVolume}
 function formatDuration(sec){if(!Number.isFinite(sec)||sec<=0)return '';const m=Math.floor(sec/60),s=Math.floor(sec%60).toString().padStart(2,'0');return m+':'+s}
 async function addMusicFiles(){
- const input=document.getElementById('musicFiles');const files=[...(input?.files||[])];if(!files.length)return alert('Selecciona una o varias canciones.');
- let cloud=false,cloudErrors=0,localErrors=0;
+ const input=document.getElementById('musicFiles');
+ const files=[...(input?.files||[])];
+ if(!files.length)return alert('Selecciona una o varias canciones.');
+ 
+ let cloud=false,cloudErrors=0,localErrors=0,added=0;
  try{
+  // Firebase se usa solo como complemento. Primero guardamos la canción
+  // en el navegador para que un fallo de Auth/Storage NO impida agregarla.
   cloud=await initFirebase() && isFirebaseAdmin();
   const db=await openMusicDB();
+ 
   for(const file of files){
-   const id=uid();let duration=0;try{duration=await readAudioDuration(file)}catch(e){}
+   const id=uid();
+   let duration=0;
+   try{duration=await readAudioDuration(file)}catch(e){}
    let url='';
-
-   // Siempre guardamos primero una copia local. Así la música no se pierde
-   // aunque Firebase Authentication o Storage estén temporalmente bloqueados.
+ 
    try{
     await new Promise((resolve,reject)=>{
      const tx=db.transaction('tracks','readwrite');
      tx.objectStore('tracks').put({id,blob:file,type:file.type,name:file.name,size:file.size,duration});
      tx.oncomplete=resolve;
      tx.onerror=()=>reject(tx.error);
+     tx.onabort=()=>reject(tx.error||new Error('La base de datos local canceló la operación.'));
     });
    }catch(e){
     console.error('Error guardando música localmente:',e);
     localErrors++;
     continue;
    }
-
-   // Si el administrador está autenticado, además intentamos subirla a Storage.
-   // Si la subida falla, conservamos la copia local y la canción sigue disponible.
+ 
+   // Si el administrador está autenticado, intentamos además subir a Firebase.
+   // Si Firebase falla, la canción sigue disponible localmente.
    if(cloud){
     try{
      const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
@@ -527,33 +534,31 @@ async function addMusicFiles(){
      await ref.put(file,{contentType:file.type||'audio/mpeg'});
      url=await ref.getDownloadURL();
     }catch(e){
-     console.error('No se pudo subir la música a Firebase Storage:',e);
+     console.error('Error subiendo música a Firebase Storage:',e);
      cloudErrors++;
     }
    }
-
+ 
    musicTracks.push({id,name:file.name,type:file.type,size:file.size,duration,url});
+   added++;
   }
-
+ 
   saveMusicMeta();
   renderMusicAdmin();
+  updateMusicNow();
   input.value='';
-
-  if(localErrors===files.length){
-   alert('No se pudo guardar ninguna canción. Revisa el almacenamiento del navegador.');
+ 
+  if(!added){
+   alert('No se pudo agregar la música. Revisa que el navegador permita almacenamiento local (IndexedDB) y vuelve a intentarlo.');
   }else if(cloud && cloudErrors===0){
-   alert(files.length===1?'Canción agregada y subida a Firebase.':'Canciones agregadas y subidas a Firebase.');
+   alert(added===1?'Canción agregada y subida a Firebase.':added+' canciones agregadas y subidas a Firebase.');
   }else if(cloud && cloudErrors>0){
-   alert(files.length===1
-    ?'Canción agregada localmente. Firebase Storage no permitió la subida; podrás usarla en este navegador.'
-    :'Canciones agregadas. Algunas no pudieron subir a Firebase Storage, pero quedaron guardadas localmente.');
+   alert(added===1?'Canción agregada localmente. Firebase no permitió la subida.':'Se agregaron '+added+' canciones. Algunas no pudieron subir a Firebase, pero quedaron guardadas localmente.');
   }else{
-   alert(files.length===1
-    ?'Canción agregada y guardada localmente. Para subirla a Firebase debes iniciar sesión como administrador.'
-    :'Canciones agregadas y guardadas localmente. Para subirlas a Firebase debes iniciar sesión como administrador.');
+   alert(added===1?'Canción agregada correctamente.':'Se agregaron '+added+' canciones correctamente.');
   }
  }catch(e){
-  console.error(e);
+  console.error('Error general al agregar música:',e);
   alert('No se pudo procesar la música: '+(e.message||e));
  }
 }

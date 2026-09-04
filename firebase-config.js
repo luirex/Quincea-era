@@ -8,5 +8,5 @@ window.CABINA_FIREBASE_CONFIG = {
   appId: "1:721125705010:web:df56b431937dfea2ea832b"
 };
 
-// Escribe aquí el correo que crearás en Firebase Authentication como administrador.
+luiggy31@gmail.com
 window.CABINA_ADMIN_EMAIL = "";

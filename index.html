@@ -656,7 +656,7 @@ function printResult(){
 function downloadResult(){const a=document.createElement('a');a.download='recuerdo-xv.png';a.href=strip.toDataURL('image/png');a.click()}
 
 function adminLogin(){show('adminLoginScreen');document.getElementById('adminPass').value=''}
-async function checkAdmin(){const pass=document.getElementById('adminPass').value;if(firebaseConfigReady()){try{await firebaseAdminSignIn(pass);show('admin');renderAdmin();updateFirebaseStatus('🔐 Administrador de Firebase autenticado.');}catch(e){alert('No se pudo iniciar sesión en Firebase. Verifica el correo configurado y la contraseña de la cuenta administradora.');}}else{if(pass==='admin123'){show('admin');renderAdmin()}else alert('Contraseña correcta.')}}
+async function checkAdmin(){const pass=document.getElementById('adminPass').value;if(firebaseConfigReady()){try{await firebaseAdminSignIn(pass);show('admin');renderAdmin();updateFirebaseStatus('🔐 Administrador de Firebase autenticado.');}catch(e){alert('No se pudo iniciar sesión en Firebase. Verifica el correo configurado y la contraseña de la cuenta administradora.');}}else{if(pass==='admin123'){show('admin');renderAdmin()}else alert('Contraseña incorrecta.')}}
 function detectTransparentSlots(src,cb){
  const img=new Image();img.onload=()=>{
   try{

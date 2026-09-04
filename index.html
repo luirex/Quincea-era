@@ -297,7 +297,7 @@ header p{margin:5px 0 0;font-size:12px}
           <input id="musicVolume" type="range" min="0" max="100" step="1" value="35" oninput="updateMusicVolume()">
         </div>
       </div>
-      <button onclick="addMusicFiles()">＋ AGREGAR MÚSICA</button>
+      <button type="button" id="addMusicButton">＋ AGREGAR MÚSICA</button>
       <button class="secondary" onclick="toggleMusic()">▶ / ⏸ REPRODUCIR / PAUSAR</button>
       <button class="secondary" onclick="stopMusic()">■ DETENER</button>
       <div id="musicNow" class="music-now">No hay música configurada.</div>
@@ -493,80 +493,102 @@ function loadMusicSettings(){
 function saveMusicMeta(){localStorage.setItem(MUSIC_META_KEY,JSON.stringify(musicTracks.map(({id,name,type,size,duration,url})=>({id,name,type,size,duration,url:url||''}))));localStorage.setItem(MUSIC_MODE_KEY,musicMode);localStorage.setItem(MUSIC_VOLUME_KEY,String(musicVolume));cloudSaveState()}
 function updateMusicVolume(){const r=document.getElementById('musicVolume');if(r){musicVolume=Number(r.value)/100;localStorage.setItem(MUSIC_VOLUME_KEY,String(musicVolume));const v=document.getElementById('musicVolumeValue');if(v)v.textContent=Math.round(musicVolume*100)+'%'}const a=document.getElementById('bgMusic');if(a)a.volume=musicVolume}
 function formatDuration(sec){if(!Number.isFinite(sec)||sec<=0)return '';const m=Math.floor(sec/60),s=Math.floor(sec%60).toString().padStart(2,'0');return m+':'+s}
-async function addMusicFiles(){
+window.addMusicFiles = async function(){
  const input=document.getElementById('musicFiles');
- const files=[...(input?.files||[])];
- if(!files.length)return alert('Selecciona una o varias canciones.');
- 
- let cloud=false,cloudErrors=0,localErrors=0,added=0;
+ const files=Array.from(input?.files||[]);
+ if(!files.length){ alert('Selecciona una o varias canciones primero.'); return; }
+ const button=document.getElementById('addMusicButton');
+ if(button){button.disabled=true;button.textContent='⏳ AGREGANDO MÚSICA...';}
+ let added=0, cloudAdded=0, errors=[];
  try{
-  // Firebase se usa solo como complemento. Primero guardamos la canción
-  // en el navegador para que un fallo de Auth/Storage NO impida agregarla.
-  cloud=await initFirebase() && isFirebaseAdmin();
-  const db=await openMusicDB();
- 
+  // Abrimos IndexedDB SIEMPRE. La canción debe quedar disponible localmente
+  // aunque Firebase tenga un problema de autenticación o Storage.
+  let db=null;
+  try{ db=await openMusicDB(); }catch(e){ console.error('IndexedDB:',e); }
+
   for(const file of files){
-   const id=uid();
-   let duration=0;
-   try{duration=await readAudioDuration(file)}catch(e){}
-   let url='';
- 
    try{
-    await new Promise((resolve,reject)=>{
-     const tx=db.transaction('tracks','readwrite');
-     tx.objectStore('tracks').put({id,blob:file,type:file.type,name:file.name,size:file.size,duration});
-     tx.oncomplete=resolve;
-     tx.onerror=()=>reject(tx.error);
-     tx.onabort=()=>reject(tx.error||new Error('La base de datos local canceló la operación.'));
-    });
-   }catch(e){
-    console.error('Error guardando música localmente:',e);
-    localErrors++;
-    continue;
-   }
- 
-   // Si el administrador está autenticado, intentamos además subir a Firebase.
-   // Si Firebase falla, la canción sigue disponible localmente.
-   if(cloud){
-    try{
-     const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
-     const ref=firebaseStorage.ref('cabina/music/'+id+'-'+safeName);
-     await ref.put(file,{contentType:file.type||'audio/mpeg'});
-     url=await ref.getDownloadURL();
-    }catch(e){
-     console.error('Error subiendo música a Firebase Storage:',e);
-     cloudErrors++;
+    if(!file || !file.size) throw new Error('El archivo está vacío o no es válido.');
+    const id=uid();
+    let duration=0;
+    try{duration=await readAudioDuration(file)}catch(e){console.warn('Duración no disponible:',e)}
+    let localUrl='';
+
+    if(db){
+      await new Promise((resolve,reject)=>{
+        const tx=db.transaction('tracks','readwrite');
+        tx.objectStore('tracks').put({id,blob:file,type:file.type||'audio/mpeg',name:file.name,size:file.size,duration});
+        tx.oncomplete=resolve;
+        tx.onerror=()=>reject(tx.error||new Error('No se pudo guardar la canción en el navegador.'));
+        tx.onabort=()=>reject(tx.error||new Error('Se canceló el almacenamiento de la canción.'));
+      });
+    } else {
+      // Último recurso: mantenerla en memoria durante esta sesión.
+      localUrl=URL.createObjectURL(file);
     }
+
+    const track={id,name:file.name,type:file.type||'audio/mpeg',size:file.size,duration,url:'',localUrl};
+    musicTracks.push(track);
+    added++;
+
+    // Mostrarla inmediatamente, sin esperar Firebase.
+    renderMusicAdmin();
+
+    // Firebase es un extra: si falla, NO elimina la canción local.
+    try{
+      const cloud=await initFirebase() && isFirebaseAdmin();
+      if(cloud && firebaseStorage){
+        const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+        const ref=firebaseStorage.ref('cabina/music/'+id+'-'+safeName);
+        await ref.put(file,{contentType:file.type||'audio/mpeg'});
+        track.url=await ref.getDownloadURL();
+        cloudAdded++;
+        saveMusicMeta();
+      }
+    }catch(e){
+      console.error('Firebase Storage:',e);
+      errors.push(file.name+': '+(e.code||e.message||'error de Firebase'));
+    }
+   }catch(e){
+    console.error('Canción:',e);
+    errors.push(file.name+': '+(e.message||e));
    }
- 
-   musicTracks.push({id,name:file.name,type:file.type,size:file.size,duration,url});
-   added++;
   }
- 
+
   saveMusicMeta();
   renderMusicAdmin();
-  updateMusicNow();
   input.value='';
- 
+
   if(!added){
-   alert('No se pudo agregar la música. Revisa que el navegador permita almacenamiento local (IndexedDB) y vuelve a intentarlo.');
-  }else if(cloud && cloudErrors===0){
-   alert(added===1?'Canción agregada y subida a Firebase.':added+' canciones agregadas y subidas a Firebase.');
-  }else if(cloud && cloudErrors>0){
-   alert(added===1?'Canción agregada localmente. Firebase no permitió la subida.':'Se agregaron '+added+' canciones. Algunas no pudieron subir a Firebase, pero quedaron guardadas localmente.');
+    alert('No se pudo agregar la música. Abre F12 → Consola y revisa el error.');
+  }else if(errors.length){
+    alert(added===1
+      ? 'Canción agregada correctamente al navegador. Firebase no pudo subirla todavía.'
+      : added+' canciones agregadas. '+errors.length+' no pudieron sincronizarse con Firebase.');
+  }else if(cloudAdded){
+    alert(added===1?'Canción agregada y subida a Firebase.':added+' canciones agregadas y subidas a Firebase.');
   }else{
-   alert(added===1?'Canción agregada correctamente.':'Se agregaron '+added+' canciones correctamente.');
+    alert(added===1?'Canción agregada correctamente. Quedó guardada en este navegador.':' '+added+' canciones agregadas correctamente y guardadas en este navegador.');
   }
  }catch(e){
-  console.error('Error general al agregar música:',e);
-  alert('No se pudo procesar la música: '+(e.message||e));
+  console.error(e);
+  alert('Error al agregar música: '+(e.message||e));
+ }finally{
+  if(button){button.disabled=false;button.textContent='＋ AGREGAR MÚSICA';}
  }
-}
+};
+
+// También conectamos el botón por JavaScript para que funcione aunque el
+// navegador no resuelva correctamente el onclick inline.
+document.addEventListener('DOMContentLoaded',()=>{
+ const b=document.getElementById('addMusicButton');
+ if(b)b.addEventListener('click',window.addMusicFiles);
+});
 
 function readAudioDuration(file){return new Promise((resolve,reject)=>{const a=document.createElement('audio');const u=URL.createObjectURL(file);a.preload='metadata';a.onloadedmetadata=()=>{const d=a.duration;URL.revokeObjectURL(u);resolve(d)};a.onerror=()=>{URL.revokeObjectURL(u);reject(new Error('metadata'))};a.src=u})}
 async function getMusicBlob(id){const db=await openMusicDB();return new Promise((resolve,reject)=>{const tx=db.transaction('tracks','readonly'),req=tx.objectStore('tracks').get(id);req.onsuccess=()=>resolve(req.result?.blob||null);req.onerror=()=>reject(req.error)})}
 function renderMusicAdmin(){const box=document.getElementById('musicList');if(!box)return;box.innerHTML='';if(!musicTracks.length){box.innerHTML='<div class="small">No hay canciones guardadas todavía.</div>';updateMusicNow();return}musicTracks.forEach((t,i)=>{const row=document.createElement('div');row.className='music-row';const info=document.createElement('div');info.className='music-row-info';const n=document.createElement('div');n.className='music-row-name';n.textContent=(i+1)+'. '+t.name;const meta=document.createElement('div');meta.className='small';meta.textContent=(t.duration?formatDuration(t.duration)+' · ':'')+(i===musicIndex?'En reproducción / seleccionada':'Disponible');info.append(n,meta);const actions=document.createElement('div');actions.className='music-row-actions';const play=document.createElement('button');play.textContent='▶ ESCUCHAR';play.className='secondary';play.onclick=()=>playMusicIndex(i);const up=document.createElement('button');up.textContent='↑';up.className='secondary';up.disabled=i===0;up.onclick=()=>moveMusic(i,-1);const down=document.createElement('button');down.textContent='↓';down.className='secondary';down.disabled=i===musicTracks.length-1;down.onclick=()=>moveMusic(i,1);const del=document.createElement('button');del.textContent='🗑️';del.className='danger';del.onclick=()=>deleteMusic(i);actions.append(play,up,down,del);row.append(info,actions);box.appendChild(row)});updateMusicNow()}
-async function playMusicIndex(i){if(!musicTracks[i])return;musicIndex=i;const a=document.getElementById('bgMusic');try{const t=musicTracks[i];if(t.url){if(musicObjectUrl)URL.revokeObjectURL(musicObjectUrl);musicObjectUrl=null;a.src=t.url}else{const blob=await getMusicBlob(t.id);if(!blob)return;if(musicObjectUrl)URL.revokeObjectURL(musicObjectUrl);musicObjectUrl=URL.createObjectURL(blob);a.src=musicObjectUrl}a.volume=musicVolume;a.loop=musicMode==='track';a.onended=onMusicEnded;await a.play();updateMusicNow();renderMusicAdmin()}catch(e){console.error(e);alert('No se pudo reproducir la canción.')}}
+async function playMusicIndex(i){if(!musicTracks[i])return;musicIndex=i;const a=document.getElementById('bgMusic');try{const t=musicTracks[i];if(t.url||t.localUrl){if(musicObjectUrl)URL.revokeObjectURL(musicObjectUrl);musicObjectUrl=null;a.src=t.url||t.localUrl}else{const blob=await getMusicBlob(t.id);if(!blob)return;if(musicObjectUrl)URL.revokeObjectURL(musicObjectUrl);musicObjectUrl=URL.createObjectURL(blob);a.src=musicObjectUrl}a.volume=musicVolume;a.loop=musicMode==='track';a.onended=onMusicEnded;await a.play();updateMusicNow();renderMusicAdmin()}catch(e){console.error(e);alert('No se pudo reproducir la canción.')}}
 function onMusicEnded(){if(musicMode==='track'){const a=document.getElementById('bgMusic');a.currentTime=0;a.play().catch(()=>{});return}if(!musicTracks.length)return;musicIndex=(musicIndex+1)%musicTracks.length;playMusicIndex(musicIndex)}
 function toggleMusic(){const a=document.getElementById('bgMusic');if(!musicTracks.length)return alert('Agrega música primero.');if(!a.src)return playMusicIndex(musicIndex);if(a.paused)a.play().catch(()=>playMusicIndex(musicIndex));else a.pause();updateMusicNow()}
 function stopMusic(){const a=document.getElementById('bgMusic');a.pause();a.currentTime=0;updateMusicNow()}

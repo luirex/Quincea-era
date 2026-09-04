@@ -17,6 +17,8 @@ button.danger{background:linear-gradient(135deg,#c8788c,#aa596f)}
 .app:before{content:"";position:absolute;top:0;left:10%;right:10%;height:1px;background:linear-gradient(90deg,transparent,var(--dorado),transparent)}
 .admin-gear{position:absolute;top:20px;right:22px;width:43px;height:43px;margin:0;padding:0;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(255,255,255,.72);color:#a987a0;border:1px solid #ead7e1;box-shadow:0 5px 16px rgba(100,70,90,.08);font-size:19px;z-index:10}
 .admin-gear:hover{color:#9a6d88;background:#fff;transform:rotate(35deg) scale(1.04)}
+.fullscreen-btn{position:absolute;top:20px;left:20px;width:43px;height:43px;margin:0;padding:0;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(255,255,255,.72);color:#a987a0;border:1px solid #ead7e1;box-shadow:0 5px 16px rgba(100,70,90,.08);font-size:18px;z-index:10}.fullscreen-btn:hover{color:#9a6d88;background:#fff;transform:scale(1.04)}
+@media(max-width:520px){.fullscreen-btn{top:13px;left:13px;width:38px;height:38px}}
 header{position:relative;padding:12px 45px 28px;text-align:center}
 .crown{display:block;color:var(--dorado);font-size:24px;margin-bottom:3px;letter-spacing:6px}
 h1,h2,h3{font-family:'Cormorant Garamond',Georgia,serif;color:#704d60}
@@ -158,6 +160,7 @@ header p{margin:5px 0 0;font-size:12px}
 <body>
 <div class="app">
 <audio id="bgMusic" preload="auto"></audio>
+<button id="fullscreenBtn" class="fullscreen-btn" onclick="toggleFullscreen()" title="Ver pantalla completa" aria-label="Ver pantalla completa">⛶</button>
 <button class="admin-gear" onclick="adminLogin()" title="Administración" aria-label="Abrir administración">⚙</button>
 <header>
   <span class="crown">✦ ♕ ✦</span>
@@ -518,6 +521,10 @@ async function moveMusic(i,delta){const j=i+delta;if(j<0||j>=musicTracks.length)
 async function deleteMusic(i){const t=musicTracks[i];if(!t)return;if(!confirm('¿Eliminar esta canción?'))return;try{const db=await openMusicDB();await new Promise((resolve,reject)=>{const tx=db.transaction('tracks','readwrite');tx.objectStore('tracks').delete(t.id);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});musicTracks.splice(i,1);if(musicIndex>=musicTracks.length)musicIndex=Math.max(0,musicTracks.length-1);if(!musicTracks.length)stopMusic();saveMusicMeta();renderMusicAdmin()}catch(e){alert('No se pudo eliminar la canción.')}}
 function startBackgroundMusic(){if(!musicTracks.length)return;const a=document.getElementById('bgMusic');a.volume=musicVolume;a.loop=musicMode==='track';if(a.src&&!a.paused){updateMusicNow();return}playMusicIndex(musicIndex).catch(()=>{})}
 
+function isFullscreen(){return !!(document.fullscreenElement||document.webkitFullscreenElement||document.msFullscreenElement)}
+function updateFullscreenButton(){const b=document.getElementById('fullscreenBtn');if(!b)return;const fs=isFullscreen();b.title=fs?'Salir de pantalla completa':'Ver pantalla completa';b.setAttribute('aria-label',b.title)}
+async function toggleFullscreen(){try{if(isFullscreen()){if(document.exitFullscreen)await document.exitFullscreen();else if(document.webkitExitFullscreen)document.webkitExitFullscreen();else if(document.msExitFullscreen)document.msExitFullscreen()}else{const el=document.documentElement;if(el.requestFullscreen)await el.requestFullscreen();else if(el.webkitRequestFullscreen)el.webkitRequestFullscreen();else if(el.msRequestFullscreen)el.msRequestFullscreen();else{alert('Tu navegador no permite pantalla completa desde esta página.');return}}}catch(e){console.warn('Pantalla completa no disponible:',e)}updateFullscreenButton()}
+document.addEventListener('fullscreenchange',updateFullscreenButton);document.addEventListener('webkitfullscreenchange',updateFullscreenButton);
 function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');if(id==='admin')renderBannerAdmin()}
 function goHome(){closeEditor();show('home');renderFrameList()}
 function renderFrameList(){

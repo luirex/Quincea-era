@@ -164,6 +164,34 @@ header p{margin:5px 0 0;font-size:12px}
 .like-button{background:#111;color:#fff;border:0;border-radius:14px;padding:14px 24px;font-weight:700;font-size:16px;cursor:pointer}
 .like-button:hover{transform:translateY(-1px)}
 @media(max-width:600px){.feedback-actions{flex-direction:column;align-items:center}.feedback-actions button{width:100%;max-width:300px}}
+
+/* Vista de cámara vertical para una previsualización más favorecedora */
+.camera{
+  width:min(430px,78vw)!important;
+  height:auto!important;
+  aspect-ratio:4/5!important;
+  max-height:68dvh!important;
+  margin:10px auto 0!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+}
+.camera video{
+  width:100%!important;
+  height:100%!important;
+  max-width:none!important;
+  max-height:none!important;
+  aspect-ratio:auto!important;
+  object-fit:cover!important;
+  object-position:50% 50%!important;
+}
+@media(max-width:700px){
+  .camera{
+    width:min(88vw,430px)!important;
+    max-height:66dvh!important;
+  }
+}
+
 </style>
 </head>
 <body>

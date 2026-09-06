@@ -155,6 +155,15 @@ header p{margin:5px 0 0;font-size:12px}
 
 .test-tools{display:flex;justify-content:center;gap:8px;margin:8px 0}.small-btn{font-size:12px;padding:8px 12px}
 @media(max-height:700px){.camera{max-height:58dvh}.camera video{max-height:58dvh}.status{margin:4px}.test-tools{margin:4px 0}}
+
+.feedback-card{max-width:620px;margin:auto;text-align:center;padding:28px 22px}
+.feedback-icon{font-size:58px;margin-bottom:8px}
+.feedback-card h2{font-size:clamp(28px,4.5vh,42px);margin:8px 0}
+.feedback-actions{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;margin-top:24px}
+.feedback-actions button{min-width:190px}
+.like-button{background:#111;color:#fff;border:0;border-radius:14px;padding:14px 24px;font-weight:700;font-size:16px;cursor:pointer}
+.like-button:hover{transform:translateY(-1px)}
+@media(max-width:600px){.feedback-actions{flex-direction:column;align-items:center}.feedback-actions button{width:100%;max-width:300px}}
 </style>
 </head>
 <body>
@@ -197,6 +206,18 @@ header p{margin:5px 0 0;font-size:12px}
       <button onclick="printResult()">🖨️ IMPRIMIR</button>
       <button onclick="downloadResult()">💾 GUARDAR</button>
       <button onclick="newSession()">🔄 NUEVA SESIÓN</button>
+    </div>
+  </div>
+</section>
+
+<section id="feedbackScreen" class="screen">
+  <div class="center feedback-card">
+    <div class="feedback-icon">💖</div>
+    <h2>¿Te gustó tu recuerdo?</h2>
+    <p class="subtitle">Cuéntanos antes de continuar</p>
+    <div class="feedback-actions no-print">
+      <button class="like-button" onclick="sendLike()">👍 ME GUSTA</button>
+      <button class="secondary" onclick="finishFeedback()">↩ VOLVER AL INICIO</button>
     </div>
   </div>
 </section>
@@ -658,16 +679,25 @@ async function startCamera(){
 async function photoSequence(index,label){
  status.textContent=label+' · prepárate';
  count.className='count ready';
- count.textContent=index===0?'¿LISTOS?':'';
- await new Promise(r=>setTimeout(r,index===0?1100:650));
 
- count.className='count';
- count.textContent='3';
- await new Promise(r=>setTimeout(r,850));
- count.textContent='2';
- await new Promise(r=>setTimeout(r,850));
- count.textContent='1';
- await new Promise(r=>setTimeout(r,850));
+ // La primera foto da 6 segundos completos para que la persona se prepare.
+ if(index===0){
+   for(const n of [6,5,4,3,2,1]){
+     count.className='count';
+     count.textContent=String(n);
+     await new Promise(r=>setTimeout(r,1000));
+   }
+ }else{
+   count.textContent='';
+   await new Promise(r=>setTimeout(r,650));
+   count.className='count';
+   count.textContent='3';
+   await new Promise(r=>setTimeout(r,850));
+   count.textContent='2';
+   await new Promise(r=>setTimeout(r,850));
+   count.textContent='1';
+   await new Promise(r=>setTimeout(r,850));
+ }
 
  count.className='count take';
  count.textContent='¡TOMA LA FOTO!';
@@ -736,9 +766,52 @@ function printResult(){
  const data=strip.toDataURL('image/png');
  const w=window.open('','_blank','width=700,height=900');
  if(!w){alert('Permite ventanas emergentes para imprimir.');return}
- w.document.write('<html><head><title>Recuerdo XV</title><style>@page{size:auto;margin:0}body{margin:0;text-align:center}img{width:100mm;height:auto}</style></head><body><img src="'+data+'" onload="setTimeout(()=>window.print(),400)"></body></html>');
+ const printHtml = `<!doctype html>
+<html><head><meta charset="utf-8"><title>Recuerdo XV</title>
+<style>@page{size:auto;margin:0}body{margin:0;text-align:center}img{width:100mm;height:auto}</style>
+</head><body>
+<img src="${data}" onload="setTimeout(()=>window.print(),400)">
+<script>
+(function(){
+  let sent=false;
+  function finished(){
+    if(sent)return;
+    sent=true;
+    try{ if(window.opener && !window.opener.closed) window.opener.postMessage({type:'cabina-print-finished'}, '*'); }catch(e){}
+    setTimeout(()=>{ try{window.close()}catch(e){} }, 150);
+  }
+  window.addEventListener('afterprint', finished);
+})();
+<\/script>
+</body></html>`;
+ w.document.open();
+ w.document.write(printHtml);
  w.document.close();
 }
+
+function showFeedbackAfterPrint(){
+  show('feedbackScreen');
+}
+
+function sendLike(){
+  try{localStorage.setItem('cabina_last_like', new Date().toISOString())}catch(e){}
+  const btn=document.querySelector('#feedbackScreen .like-button');
+  if(btn){btn.textContent='💖 ¡GRACIAS!';btn.disabled=true;}
+  setTimeout(finishFeedback,900);
+}
+
+function finishFeedback(){
+  photos=[];
+  show('home');
+  renderFrameList();
+}
+
+window.addEventListener('message', (event)=>{
+  if(event && event.data && event.data.type==='cabina-print-finished'){
+    showFeedbackAfterPrint();
+  }
+});
+
 function downloadResult(){const a=document.createElement('a');a.download='recuerdo-xv.png';a.href=strip.toDataURL('image/png');a.click()}
 
 function adminLogin(){show('adminLoginScreen');document.getElementById('adminPass').value=''}
